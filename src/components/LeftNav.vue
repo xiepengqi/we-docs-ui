@@ -48,7 +48,7 @@ export default {
 <style lang="scss" scoped>
   .left-menu {
     position: fixed;
-    top: 40px;
+    top: 110px;
     bottom: 0;
     left: 0;
     width: 260px;

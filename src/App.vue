@@ -1,12 +1,81 @@
 <template>
   <el-container
     id="app"
-    v-loading.fullscreen.lock="Object.keys(menus).length <= 0"
+    v-loading.fullscreen.lock="isLoading"
     element-loading-text="拼命加载中"
     element-loading-spinner="el-icon-loading"
     element-loading-background="rgba(0, 0, 0, 0.8)"
   >
     <el-aside>
+      <div class="toolbar">
+        <el-select
+          v-model="selectedRepo"
+          placeholder="repo"
+          size="mini"
+          filterable
+          class="toolbar-item"
+          @change="onRepoChange"
+        >
+          <el-option
+            v-for="item in repoList"
+            :key="item"
+            :label="item"
+            :value="item"
+          />
+        </el-select>
+        <el-select
+          v-model="selectedBranch"
+          placeholder="branch"
+          size="mini"
+          filterable
+          class="toolbar-item"
+          @change="onBranchChange"
+        >
+          <el-option
+            v-for="item in branchList"
+            :key="item"
+            :label="item"
+            :value="item"
+          />
+        </el-select>
+        <el-radio-group v-model="viewMode" size="mini" @change="onModeChange">
+          <el-radio-button label="doc">文档</el-radio-button>
+          <el-radio-button label="diff">Diff</el-radio-button>
+        </el-radio-group>
+        <el-button size="mini" @click="refreshCurrent">刷新</el-button>
+        <div v-if="viewMode === 'diff'" class="toolbar-row">
+          <el-select
+            v-model="baseBranch"
+            placeholder="base"
+            size="mini"
+            filterable
+            class="toolbar-item"
+            @change="onBaseChange"
+          >
+            <el-option
+              v-for="item in branchList"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+          <el-select
+            v-model="targetBranch"
+            placeholder="target"
+            size="mini"
+            filterable
+            class="toolbar-item"
+            @change="onTargetChange"
+          >
+            <el-option
+              v-for="item in branchList"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </div>
+      </div>
       <el-input v-model="searchStr" placeholder="select..." class="search-input" clearable />
       <left-nav
         v-loading="inputLoading"
@@ -16,7 +85,8 @@
     </el-aside>
     <el-main>
       <el-button @click="goHome">Home</el-button>
-      <div v-if="Object.keys(menus).length > 0" v-highlight v-html="htmlDoc" />
+      <div v-if="viewMode === 'doc' && Object.keys(menus).length > 0" v-highlight v-html="htmlDoc" />
+      <div v-if="viewMode === 'diff'" v-highlight v-html="htmlDiff" />
     </el-main>
   </el-container>
 </template>
@@ -34,12 +104,31 @@ export default {
       searchStr: '',
       menus: {},
       searchId: '',
-      inputLoading: false
+      inputLoading: false,
+      repos: {},
+      repoList: [],
+      branchList: [],
+      selectedRepo: '',
+      selectedBranch: '',
+      viewMode: 'doc',
+      baseBranch: '',
+      targetBranch: '',
+      diffResult: null,
+      diffLoading: false
     }
   },
   computed: {
+    isLoading() {
+      if (this.viewMode === 'diff') {
+        return this.diffLoading
+      }
+      return Object.keys(this.menus).length <= 0
+    },
     htmlDoc() {
       return marked(this.buildMd(this.$store.state.content)).replace(/&lt;br&gt;/g, '\n')
+    },
+    htmlDiff() {
+      return marked(this.buildDiffMd(this.diffResult)).replace(/&lt;br&gt;/g, '\n')
     }
   },
   watch: {
@@ -57,16 +146,12 @@ export default {
           this.checkHidden(module)
         }
         this.inputLoading = false
+        this.updateUrl()
       }, 1000)
     }
   },
   mounted() {
-    this.$http.get('/data').then(resp => {
-      this.menus = resp.data
-      window.$weDocs = this.menus
-      this.$store.state.content = this.menus
-      this.searchStr = location.href.split('?')[1]
-    })
+    this.loadRepos()
     marked.setOptions({
       renderer: new marked.Renderer(),
       gfm: true,
@@ -79,6 +164,135 @@ export default {
     })
   },
   methods: {
+    loadRepos() {
+      this.$http.get('/repos').then(resp => {
+        const repos = (resp.data && resp.data.repos) ? resp.data.repos : {}
+        this.repos = repos || {}
+        this.repoList = Object.keys(this.repos)
+
+        const query = new URLSearchParams(location.search)
+        const qRepo = query.get('repo')
+        const qBranch = query.get('branch')
+        const qBase = query.get('base')
+        const qTarget = query.get('target')
+        const qMode = query.get('mode')
+        const q = query.get('q') || query.get('search') || ''
+        this.searchStr = q
+
+        if (this.repoList.length > 0) {
+          this.selectedRepo = qRepo || this.repoList[0]
+          this.updateBranchList()
+          if (this.branchList.length > 0) {
+            this.selectedBranch = qBranch || this.branchList[0]
+            this.baseBranch = qBase || this.branchList[0]
+            this.targetBranch = qTarget || this.branchList[1] || this.branchList[0]
+          }
+        }
+        this.viewMode = (qMode === 'diff') ? 'diff' : 'doc'
+        this.refreshCurrent()
+      }).catch(() => {
+        this.refreshCurrent()
+      })
+    },
+    updateBranchList() {
+      this.branchList = (this.repos[this.selectedRepo] || []).slice()
+    },
+    onRepoChange() {
+      this.updateBranchList()
+      this.selectedBranch = this.branchList[0] || ''
+      this.baseBranch = this.branchList[0] || ''
+      this.targetBranch = this.branchList[1] || this.branchList[0] || ''
+      this.refreshCurrent()
+    },
+    onBranchChange() {
+      if (this.viewMode === 'doc') {
+        this.loadData()
+      }
+    },
+    onBaseChange() {
+      if (this.viewMode === 'diff') {
+        this.loadDiff()
+      }
+    },
+    onTargetChange() {
+      if (this.viewMode === 'diff') {
+        this.loadDiff()
+      }
+    },
+    onModeChange() {
+      this.refreshCurrent()
+    },
+    refreshCurrent() {
+      if (this.viewMode === 'diff') {
+        this.loadDiff()
+      } else {
+        this.loadData()
+      }
+    },
+    loadData() {
+      const params = {}
+      if (this.selectedRepo) {
+        params.repo = this.selectedRepo
+      }
+      if (this.selectedBranch) {
+        params.branch = this.selectedBranch
+      }
+      this.$http.get('/data', params).then(resp => {
+        this.menus = resp.data || {}
+        window.$weDocs = this.menus
+        this.$store.state.content = this.menus
+        this.updateUrl()
+      })
+    },
+    loadDiff() {
+      if (!this.selectedRepo || !this.baseBranch || !this.targetBranch) {
+        this.diffResult = {
+          $type: 'diff',
+          $base: this.baseBranch,
+          $target: this.targetBranch,
+          added: [],
+          removed: [],
+          changed: []
+        }
+        return
+      }
+      this.diffLoading = true
+      this.$http.get('/diff', {
+        repo: this.selectedRepo,
+        base: this.baseBranch,
+        target: this.targetBranch
+      }).then(resp => {
+        this.diffResult = resp.data || {}
+        this.diffLoading = false
+        this.updateUrl()
+      }).catch(() => {
+        this.diffLoading = false
+      })
+    },
+    updateUrl() {
+      const params = new URLSearchParams()
+      if (this.selectedRepo) {
+        params.set('repo', this.selectedRepo)
+      }
+      if (this.selectedBranch) {
+        params.set('branch', this.selectedBranch)
+      }
+      if (this.baseBranch) {
+        params.set('base', this.baseBranch)
+      }
+      if (this.targetBranch) {
+        params.set('target', this.targetBranch)
+      }
+      if (this.viewMode) {
+        params.set('mode', this.viewMode)
+      }
+      if (this.searchStr) {
+        params.set('q', this.searchStr)
+      }
+      const qs = params.toString()
+      const next = qs ? `?${qs}` : location.pathname
+      window.history.replaceState(null, '', next)
+    },
     goHome() {
       this.$store.state.content = this.menus
     },
@@ -139,7 +353,7 @@ export default {
         return ''
       }
 
-      return str.replace(/[\/\*]+/g, '').trim().replace(/[\n]+/g, '<br>')
+      return str.replace(/[\/*]+/g, '').trim().replace(/[\n]+/g, '<br>')
     },
     buildDeps(json) {
       if (!json.$deps) {
@@ -256,6 +470,60 @@ Url: ${json.$nexusBrowseUrl}
 ${str}
       `
     },
+    buildDiffMd(diff) {
+      if (!diff) {
+        return '加载中...'
+      }
+      const base = diff.$base || ''
+      const target = diff.$target || ''
+      const groups = [
+        { key: 'http', title: 'HTTP 接口' },
+        { key: 'dubbo', title: 'Dubbo 接口' },
+        { key: 'enum', title: '枚举' }
+      ]
+
+      const totalAdded = (diff.added || []).length
+      const totalRemoved = (diff.removed || []).length
+      const totalChanged = (diff.changed || []).length
+
+      let md = `
+### Diff (${base} -> ${target})
+
+- 新增: ${totalAdded}
+- 删除: ${totalRemoved}
+- 变更: ${totalChanged}
+`
+
+      const renderList = (title, items, withChanges) => {
+        if (!items || items.length <= 0) {
+          return ''
+        }
+        let out = `\n#### ${title} (${items.length})\n`
+        items.forEach(item => {
+          const name = item.title || item.key || item.name || ''
+          if (withChanges && item.changes) {
+            const fields = Object.keys(item.changes).join(', ')
+            out += `- ${name} [${fields}]\n`
+          } else {
+            out += `- ${name}\n`
+          }
+        })
+        return out
+      }
+
+      groups.forEach(group => {
+        const block = diff[group.key]
+        if (!block) {
+          return
+        }
+        md += `\n### ${group.title}\n`
+        md += renderList('新增', block.added, false)
+        md += renderList('删除', block.removed, false)
+        md += renderList('变更', block.changed, true)
+      })
+
+      return md
+    },
     buildMd(json) {
       const repoInfo = (json.$repo || json.$branch) ? `
 #### Git Repo
@@ -301,11 +569,33 @@ ${nexusDeps}
 
 <style scoped lang="scss">
   #app {
-    .search-input {
+    .toolbar {
       position: fixed;
       top: 5px;
+      left: 0;
+      width: 260px;
+      padding: 0 5px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+      z-index: 2;
+      background: #fff;
+    }
+    .toolbar-row {
+      display: flex;
+      width: 100%;
+      gap: 4px;
+    }
+    .toolbar-item {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .search-input {
+      position: fixed;
+      top: 70px;
       width: 250px;
-      /deep/ .el-input__inner {
+      ::v-deep .el-input__inner {
         border: 0;
       }
     }
