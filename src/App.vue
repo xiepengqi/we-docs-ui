@@ -147,12 +147,7 @@ export default {
       }
       this.inputLoading = true
       this.searchId = setTimeout(() => {
-        for (const [key, module] of Object.entries(this.menus)) {
-          if (key.startsWith('$') || (typeof module) !== 'object') {
-            continue
-          }
-          this.applyFilter(module, key, this.searchStr)
-        }
+        this.applySearchFilter()
         this.inputLoading = false
         this.updateUrl()
       }, 1000)
@@ -249,6 +244,7 @@ export default {
         this.menus = resp.data || {}
         window.$weDocs = this.menus
         this.$store.state.content = this.menus
+        this.applySearchFilter()
         this.updateUrl()
       })
     },
@@ -334,7 +330,9 @@ export default {
         Object.keys(data.$deps || {}).join(',')
       )
       matchStr = matchStr.toUpperCase()
-      data.$matchStr = matchStr
+      if (data.$matchStr !== matchStr) {
+        this.$set(data, '$matchStr', matchStr)
+      }
       for (const k of str.split(/\s+/).filter(item => item)) {
         if (matchStr.indexOf(k.toUpperCase()) === -1) {
           return false
@@ -355,8 +353,18 @@ export default {
       }
       const selfMatch = this.matchNode(data, key, str)
       const visible = !str ? true : (selfMatch || childVisible)
-      data.$hidden = !visible
+      if (data.$hidden !== !visible) {
+        this.$set(data, '$hidden', !visible)
+      }
       return visible
+    },
+    applySearchFilter() {
+      for (const [key, module] of Object.entries(this.menus)) {
+        if (key.startsWith('$') || (typeof module) !== 'object') {
+          continue
+        }
+        this.applyFilter(module, key, this.searchStr)
+      }
     },
     trimDesc(str) {
       if (!str) {
