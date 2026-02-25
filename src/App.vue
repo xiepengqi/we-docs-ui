@@ -8,7 +8,7 @@
   >
     <el-aside class="aside">
       <div class="toolbar">
-        <div class="toolbar-row">
+        <div class="toolbar-row toolbar-row-main">
           <el-select
             v-model="selectedRepo"
             placeholder="repo"
@@ -24,9 +24,19 @@
               :value="item"
             />
           </el-select>
+          <el-radio-group
+            v-model="viewMode"
+            size="mini"
+            class="toolbar-item toolbar-mode"
+            @change="onModeChange"
+          >
+            <el-radio-button label="doc">文档</el-radio-button>
+            <el-radio-button label="diff">Diff</el-radio-button>
+          </el-radio-group>
         </div>
-        <div class="toolbar-row">
+        <div class="toolbar-row toolbar-row-branch" :class="{ 'is-diff': viewMode === 'diff' }">
           <el-select
+            v-if="viewMode === 'doc'"
             v-model="selectedBranch"
             placeholder="branch"
             size="mini"
@@ -41,13 +51,8 @@
               :value="item"
             />
           </el-select>
-          <el-radio-group v-model="viewMode" size="mini" @change="onModeChange">
-            <el-radio-button label="doc">文档</el-radio-button>
-            <el-radio-button label="diff">Diff</el-radio-button>
-          </el-radio-group>
-        </div>
-        <div v-if="viewMode === 'diff'" class="toolbar-row">
           <el-select
+            v-else
             v-model="baseBranch"
             placeholder="base"
             size="mini"
@@ -62,7 +67,9 @@
               :value="item"
             />
           </el-select>
+          <span v-if="viewMode === 'diff'" class="toolbar-arrow">→</span>
           <el-select
+            v-if="viewMode === 'diff'"
             v-model="targetBranch"
             placeholder="target"
             size="mini"
@@ -79,7 +86,6 @@
           </el-select>
         </div>
         <el-input
-          v-if="viewMode === 'doc'"
           v-model="searchStr"
           placeholder="select..."
           class="search-input"
@@ -613,28 +619,68 @@ ${nexusDeps}
       gap: 4px;
       z-index: 2;
       background: #fff;
+      box-sizing: border-box;
     }
     .toolbar-row {
       display: flex;
       width: 100%;
       gap: 4px;
+      align-items: center;
+    }
+    .toolbar-row-main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+      gap: 4px;
+      min-width: 0;
+    }
+    .toolbar-row-branch {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 4px;
+    }
+    .toolbar-row-branch.is-diff {
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     }
     .toolbar-item {
       flex: 1 1 auto;
       min-width: 0;
     }
     .toolbar-select {
-      flex: 0 0 auto;
-      width: 120px;
+      flex: 1 1 0;
     }
     .toolbar-select-wide {
-      width: 80%;
+      flex: 2 1 0;
+    }
+    .toolbar-mode {
+      flex: 0 0 auto;
+      min-width: 0;
+    }
+    .toolbar-arrow {
+      flex: 0 0 auto;
+      color: #909399;
+      font-size: 12px;
+      line-height: 1;
+      padding: 0 2px;
+      user-select: none;
     }
     .search-input {
-      width: 250px;
+      width: 100%;
       ::v-deep .el-input__inner {
         border: 0;
       }
+    }
+    ::v-deep .toolbar-row-main .el-select,
+    ::v-deep .toolbar-row-branch .el-select {
+      width: 100%;
+      min-width: 0;
+    }
+    ::v-deep .toolbar-row-main .el-radio-group {
+      display: inline-flex;
+      flex-wrap: nowrap;
+      max-width: 100%;
+    }
+    ::v-deep .toolbar-row-main .el-radio-button__inner {
+      padding: 4px 8px;
     }
   }
 </style>

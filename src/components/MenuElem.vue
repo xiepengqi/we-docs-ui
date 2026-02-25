@@ -25,9 +25,9 @@ export default {
       default: () => {}
     }
   },
-  data() {
-    return {
-      child: this.getChild(this.data)
+  computed: {
+    child() {
+      return this.getChild(this.data)
     }
   },
   methods: {
