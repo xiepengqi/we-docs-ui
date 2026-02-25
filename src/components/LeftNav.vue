@@ -47,11 +47,11 @@ export default {
 
 <style lang="scss" scoped>
   .left-menu {
-    position: fixed;
-    top: 110px;
-    bottom: 0;
-    left: 0;
-    width: 260px;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    overflow-x: hidden;
     overflow: auto;
   }
 </style>

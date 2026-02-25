@@ -6,50 +6,53 @@
     element-loading-spinner="el-icon-loading"
     element-loading-background="rgba(0, 0, 0, 0.8)"
   >
-    <el-aside>
+    <el-aside class="aside">
       <div class="toolbar">
-        <el-select
-          v-model="selectedRepo"
-          placeholder="repo"
-          size="mini"
-          filterable
-          class="toolbar-item"
-          @change="onRepoChange"
-        >
-          <el-option
-            v-for="item in repoList"
-            :key="item"
-            :label="item"
-            :value="item"
-          />
-        </el-select>
-        <el-select
-          v-model="selectedBranch"
-          placeholder="branch"
-          size="mini"
-          filterable
-          class="toolbar-item"
-          @change="onBranchChange"
-        >
-          <el-option
-            v-for="item in branchList"
-            :key="item"
-            :label="item"
-            :value="item"
-          />
-        </el-select>
-        <el-radio-group v-model="viewMode" size="mini" @change="onModeChange">
-          <el-radio-button label="doc">文档</el-radio-button>
-          <el-radio-button label="diff">Diff</el-radio-button>
-        </el-radio-group>
-        <el-button size="mini" @click="refreshCurrent">刷新</el-button>
+        <div class="toolbar-row">
+          <el-select
+            v-model="selectedRepo"
+            placeholder="repo"
+            size="mini"
+            filterable
+            class="toolbar-item toolbar-select toolbar-select-wide"
+            @change="onRepoChange"
+          >
+            <el-option
+              v-for="item in repoList"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </div>
+        <div class="toolbar-row">
+          <el-select
+            v-model="selectedBranch"
+            placeholder="branch"
+            size="mini"
+            filterable
+            class="toolbar-item toolbar-select"
+            @change="onBranchChange"
+          >
+            <el-option
+              v-for="item in branchList"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+          <el-radio-group v-model="viewMode" size="mini" @change="onModeChange">
+            <el-radio-button label="doc">文档</el-radio-button>
+            <el-radio-button label="diff">Diff</el-radio-button>
+          </el-radio-group>
+        </div>
         <div v-if="viewMode === 'diff'" class="toolbar-row">
           <el-select
             v-model="baseBranch"
             placeholder="base"
             size="mini"
             filterable
-            class="toolbar-item"
+            class="toolbar-item toolbar-select"
             @change="onBaseChange"
           >
             <el-option
@@ -64,7 +67,7 @@
             placeholder="target"
             size="mini"
             filterable
-            class="toolbar-item"
+            class="toolbar-item toolbar-select"
             @change="onTargetChange"
           >
             <el-option
@@ -75,8 +78,14 @@
             />
           </el-select>
         </div>
+        <el-input
+          v-if="viewMode === 'doc'"
+          v-model="searchStr"
+          placeholder="select..."
+          class="search-input"
+          clearable
+        />
       </div>
-      <el-input v-model="searchStr" placeholder="select..." class="search-input" clearable />
       <left-nav
         v-loading="inputLoading"
         :menus="menus"
@@ -138,12 +147,11 @@ export default {
       }
       this.inputLoading = true
       this.searchId = setTimeout(() => {
-        for (const module of Object.values(this.menus)) {
-          for (const clazz of Object.values(module)) {
-            this.filterData(clazz, this.searchStr)
-            this.checkHidden(clazz)
+        for (const [key, module] of Object.entries(this.menus)) {
+          if (key.startsWith('$') || (typeof module) !== 'object') {
+            continue
           }
-          this.checkHidden(module)
+          this.applyFilter(module, key, this.searchStr)
         }
         this.inputLoading = false
         this.updateUrl()
@@ -296,23 +304,6 @@ export default {
     goHome() {
       this.$store.state.content = this.menus
     },
-    checkHidden(data) {
-      if ((typeof data) !== 'object') {
-        return
-      }
-      let i = 0
-      for (const value of Object.values(data)) {
-        if ((typeof value) === 'object' && !value.$hidden) {
-          i++
-          break
-        }
-      }
-      if (i <= 0) {
-        data.$hidden = true
-      } else {
-        data.$hidden = false
-      }
-    },
     buildMatchStr(...strs) {
       const x = ''
       if (!strs) {
@@ -321,32 +312,51 @@ export default {
       return strs.map(item => item ? item.trim() : '')
         .filter(item => item).join(' ')
     },
-    filterData(data, str) {
+    getChildren(data) {
       if ((typeof data) !== 'object') {
-        return
+        return []
       }
-      str = str || ''
-      Object.keys(data).forEach(item => {
-        if ((typeof data[item]) !== 'object') {
-          return
+      return Object.keys(data)
+        .filter(item => !item.startsWith('$') && (typeof data[item]) === 'object')
+        .map(item => ({ key: item, value: data[item] }))
+    },
+    matchNode(data, key, str) {
+      if (!str) {
+        return true
+      }
+      let matchStr = data.$matchStr || this.buildMatchStr(
+        key,
+        data.$name,
+        data.$label,
+        data.$title,
+        data.$profile,
+        data.$url,
+        Object.keys(data.$deps || {}).join(',')
+      )
+      matchStr = matchStr.toUpperCase()
+      data.$matchStr = matchStr
+      for (const k of str.split(/\s+/).filter(item => item)) {
+        if (matchStr.indexOf(k.toUpperCase()) === -1) {
+          return false
         }
-        if (!str) {
-          data[item].$hidden = false
-          return
+      }
+      return true
+    },
+    applyFilter(data, key, str) {
+      if ((typeof data) !== 'object') {
+        return false
+      }
+      const children = this.getChildren(data)
+      let childVisible = false
+      for (const child of children) {
+        if (this.applyFilter(child.value, child.key, str)) {
+          childVisible = true
         }
-        let matchStr = data[item].$matchStr || this.buildMatchStr(item, data[item].$name, data[item].$label,
-          data[item].$title, data[item].$profile, data[item].$url, Object.keys(data[item].$deps || {}).join(','))
-        matchStr = matchStr.toUpperCase()
-        data[item].$matchStr = matchStr
-        let hidden = false
-        for (const k of str.split(/\s+/).filter(item => item)) {
-          if (matchStr.indexOf(k.toUpperCase()) === -1) {
-            hidden = true
-            break
-          }
-        }
-        data[item].$hidden = hidden
-      })
+      }
+      const selfMatch = this.matchNode(data, key, str)
+      const visible = !str ? true : (selfMatch || childVisible)
+      data.$hidden = !visible
+      return visible
     },
     trimDesc(str) {
       if (!str) {
@@ -569,12 +579,26 @@ ${nexusDeps}
 
 <style scoped lang="scss">
   #app {
-    .toolbar {
-      position: fixed;
-      top: 5px;
-      left: 0;
+    height: 100vh;
+    overflow: hidden;
+    ::v-deep .el-container {
+      height: 100%;
+    }
+    ::v-deep .el-main {
+      overflow: auto;
+    }
+    .aside {
+      display: flex;
+      flex-direction: column;
       width: 260px;
-      padding: 0 5px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      width: 100%;
+      padding: 5px;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
@@ -591,9 +615,14 @@ ${nexusDeps}
       flex: 1 1 auto;
       min-width: 0;
     }
+    .toolbar-select {
+      flex: 0 0 auto;
+      width: 120px;
+    }
+    .toolbar-select-wide {
+      width: 80%;
+    }
     .search-input {
-      position: fixed;
-      top: 70px;
       width: 250px;
       ::v-deep .el-input__inner {
         border: 0;
